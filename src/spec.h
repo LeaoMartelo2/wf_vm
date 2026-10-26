@@ -1,5 +1,5 @@
-#ifndef WF_VM
-#define WF_VM
+#ifndef WF_VM_SPEC
+#define WF_VM_SPEC
 
 #include <assert.h>
 #include <stdbool.h>
@@ -9,12 +9,14 @@
 
 typedef int32_t i32;
 typedef int64_t i64;
-typedef float f32;
+typedef float   f32;
+typedef double  f64;
 
 typedef enum {
     VAL_I32,
     VAL_I64,
     VAL_F32,
+    VAL_F64,
     VAL_BOOL,
     VAL_OBJECT,
 } ValueType;
@@ -25,6 +27,7 @@ typedef struct {
         int32_t i32;
         int64_t i64;
         float f32;
+        double f64;
         bool boolean;
         void *ptr;
     }as;
@@ -38,4 +41,4 @@ typedef struct {
 } Instruction;
 
 
-#endif /* WF_VM */
+#endif /* WF_VM_SPEC */
