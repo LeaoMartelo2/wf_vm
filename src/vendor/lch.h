@@ -1,0 +1,449 @@
+/*
+Copyright 2026 github.com/LeaoMartelo2
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <ctype.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <assert.h>
+
+#ifndef LCH_H
+#define LCH_H
+
+#ifndef LCH_API
+    #define LCH_API
+#endif
+
+#if defined(__clang__)
+    #define LCH_COMPILER_INFO "Clang [ " __clang_version__ "]"
+#elif defined(__GNUC__)
+    #define LCH_COMPILER_INFO "GCC [ " __VERSION__ " ]"
+#else
+    #define LCH_COMPILER_INFO "Unknown compiler"
+#endif
+
+
+#ifndef LCH_BUILD_DATE
+    #define LCH_BUILD_DATE "Built at " __DATE__ " at " __TIME__ ""
+#endif
+
+#ifndef LCH_GIT_HASH
+    #define LCH_GIT_HASH "Not in a Git environment"
+#endif
+
+
+
+#define UNUSED(x) ((void)(x))
+#define BOOL_TO_STR(x) ((x) ? "true" : "false")
+
+#define lch_likely(x) __builtin_expect(!!(x), 1)
+#define lch_unlikely(x) __builtin_expect(!!(x), 0)
+
+
+#ifdef LCH_TYPEALIAS
+    
+    typedef int8_t   i8;
+    typedef int16_t i16;
+    typedef int32_t i32;
+    typedef int64_t i64;
+
+    typedef float f32;
+    typedef double f64;
+    
+    typedef uint8_t   u8;
+    typedef uint16_t u16;
+    typedef uint32_t u32;
+    typedef uint64_t u64;
+#endif /* LCH_TYPEALIAS */
+
+
+
+#ifdef LCH_ENABLE_DEFER
+    #if defined(__clang__)
+
+        #if !__has_feature(blocks)
+            #error "LCH_ENABLE_DEFER error: Clang requires '-fblocks' compile flag."
+        #endif
+
+    static inline void lch__defer_cleanup_func(void (^*block_ptr)(void)) {
+        if(block_ptr && *block_ptr) {
+            (*block_ptr)();
+        }
+    }
+    
+    #define LCH_DEFER_CONCAT2(a, b) a##b 
+    #define LCH_DEFER_CONCAT(a, b) LCH_DEFER_CONCAT2(a, b)
+
+    #define defer \
+        __attribute__((cleanup(lch__defer_cleanup_func), unused)) \
+        void (^LCH_DEFER_CONCAT(_defer_var_, __COUNTER__))(void) = ^
+
+    #elif defined(__GNUC__)
+
+    /* Macro and GNU extension based Defer implementation based on: */
+    /* https://github.com/cmhood/c-defer/blob/master/defer.h        ->       Unlicense */
+    #define defer defer__2(__COUNTER__)
+    #define defer__2(X) defer__3(X)
+    #define defer__3(X) defer__4(defer__id##X)
+    #define defer__4(ID) auto void ID##func(char (*)[]); __attribute__((cleanup(ID##func), unused)) char ID##var[0]; void ID##func(__attribute__((unused)) char (*ID##param)[])
+    /* Sligtly modified to remove some warnings */
+
+    #else 
+        #error "LCH_ENABLE_DEFER error: Unsuported compiler. 'defer' requires GCC nested functions or Clang blocks extensions."
+    #endif
+#endif /* LCH_ENABLE_DEFER */
+
+
+
+#ifndef LCH_MAX_TF_BUF
+    #define LCH_MAX_TF_BUF 4
+#endif
+#ifndef LCH_TB_LEN
+    #define LCH_TB_LEN 1024
+#endif
+LCH_API const char *lch_textformat(const char *fmt, ...);
+
+typedef struct lch_crash_details lch_crash_details;
+
+typedef void(*lch_crash_callback)(void *context);
+
+struct lch_crash_details {
+    const char *description;
+    const char *detailed_description;
+    const char *title;
+    const size_t line_where;
+    const char *file_where;
+    const char *function_where;
+    const short exit_code;
+    FILE *const file_write_to;
+    bool do_abrt;
+
+    lch_crash_callback on_crash;
+    void *callback_context;
+    const char *callback_name;
+
+};
+
+#define ON_CRASH(func) .on_crash = (func), .callback_name = #func
+
+#ifndef LCH_CRASH_FD
+    #define LCH_CRASH_FD stderr
+#endif
+
+[[noreturn]] LCH_API void lch_crash_opt(lch_crash_details details);
+
+#define lch_crash(...) lch_crash_opt((lch_crash_details){__VA_ARGS__,\
+        .file_where = __FILE__,\
+        .line_where = __LINE__,\
+        .function_where = __func__, })
+
+#define lch_quick_crash() lch_crash(.title = "Program has crashed", \
+        .description = "No additional information has been provided",\
+        .exit_code = 1)
+
+
+
+typedef struct {
+    const char *file_where;
+    const size_t line_where;
+    const char *function_where;
+    bool dont_exit;
+} lch_todo_details;
+
+LCH_API void lch_todo_opt(const char *txt, lch_todo_details details);
+
+#ifndef LCH_DISABLE_TODO
+
+    #define lch_todo(txt, ...) lch_todo_opt((txt),\
+            (lch_todo_details){__VA_ARGS__,\
+            .line_where = __LINE__,\
+            .function_where = __func__})
+
+#endif
+
+#ifdef LCH_DISABLE_TODO
+    #define lch_todo(txt, ...) 
+#endif
+
+
+typedef struct {
+    size_t count;
+    union {
+        const char *data;
+        const char *items;
+    };
+} lch_string_view;
+
+LCH_API lch_string_view lch_sv(char *c_str);
+
+LCH_API void lch_sv_chop_left(lch_string_view *sv, size_t count);
+
+LCH_API void lch_sv_chop_right(lch_string_view *sv, size_t count);
+
+LCH_API void lch_sv_trim_left(lch_string_view *sv);
+
+LCH_API void lch_sv_trim_right(lch_string_view *sv);
+
+LCH_API void lch_sv_trim(lch_string_view *sv);
+
+LCH_API lch_string_view lch_sv_chop_by_delim(lch_string_view *sv, char delim);
+
+LCH_API bool lch_sv_contains(lch_string_view haystack, lch_string_view needle);
+
+LCH_API bool lch_sv_equals(lch_string_view a, lch_string_view b);
+
+
+#define lch_sv_fmt "%.*s"
+#define lch_sv_arg(sv) (int)(sv).count, (sv).data
+
+
+typedef struct {
+    bool all_caps;
+    bool capitalized;
+} lch__bool_opts;
+
+LCH_API const char *lch_bool_to_str_ex_opt(bool value, lch__bool_opts opt);
+
+#define lch_bool_to_str_ex(value, ...) lch_bool_to_str_ex_opt(value, (lch__bool_opts){__VA_ARGS__})
+
+
+
+#ifdef LCH_DISABLE_PREFIX
+    #define textformat lch_textformat
+
+    #define crash lch_crash
+    #define quick_crash lch_quick_crash
+    #define todo lch_todo
+
+    #define sv lch_sv
+    #define sv_chop_left lch_sv_chop_left 
+    #define sv_chop_right lch_sv_chop_right 
+    #define sv_trim_left lch_sv_trim_left
+    #define sv_trim_right lch_sv_trim_right
+    #define sv_trim lch_sv_trim
+    #define sv_chop_by_delim lch_sv_chop_by_delim
+    #define sv_contains lch_sv_contains
+    #define sv_equals lch_sv_equals
+    #define sv_fmt lch_sv_fmt
+    #define sv_arg lch_sv_arg
+
+    #define bool_to_str_ex lch_bool_to_str_ex
+
+#endif
+
+
+
+#endif /* LCH_H */
+
+#ifdef LCH_IMPLEMENTATION
+
+LCH_API const char *lch_textformat(const char *fmt, ...) {
+    static char buffers[LCH_MAX_TF_BUF][LCH_TB_LEN];
+    static size_t index = 0;
+
+    char *current_buffer = buffers[index];
+    memset(current_buffer, 0, LCH_TB_LEN);
+
+    va_list args;
+    va_start(args, fmt);
+    size_t required_sz = vsnprintf(current_buffer, LCH_TB_LEN, fmt, args);
+    va_end(args);
+
+    if(required_sz >= LCH_TB_LEN) {
+        fprintf(stderr, "[LCH] String formating fail: attempting to format string larger than LCH_TB_LEN\n");
+        return NULL;
+    }
+
+    index += 1;
+
+    if(index >= LCH_MAX_TF_BUF) index = 0;
+
+    return current_buffer;
+}
+
+[[noreturn]] LCH_API void lch_crash_opt(lch_crash_details details) {
+
+    FILE *write_handle = NULL;
+
+    if(details.file_write_to) {
+        write_handle = details.file_write_to;
+    }
+    else {
+        write_handle = LCH_CRASH_FD;
+    }
+
+    fprintf(write_handle, "\n\n");
+
+    if(details.title)                   fprintf(write_handle, "%s\n", details.title);
+    if(details.description)             fprintf(write_handle, "%s\n", details.description);
+    if(details.detailed_description)    fprintf(write_handle, "%s\n", details.detailed_description);
+
+    if(details.file_where && details.function_where && details.line_where) {
+        fprintf(write_handle, "At: %s:%zu, in function %s()\n",
+                details.file_where, details.line_where, details.function_where);
+    }
+
+    fflush(write_handle);
+
+    if(details.do_abrt) {
+
+        if(details.on_crash != NULL) fprintf(write_handle, "[LCH] .do_abrt: Ignoring on_crash\n");
+
+        abort();
+    }
+
+    if(details.on_crash != NULL) {
+        fprintf(write_handle, "\n===================\n");
+        if(details.callback_name) {
+            fprintf(write_handle, "[LCH] on_crash: %s()\n", details.callback_name);
+        }
+        else {
+            fprintf(write_handle, "[LCH] on_crash()\n");
+        }
+
+        details.on_crash(details.callback_context);
+
+        fprintf(write_handle, "\n===================\n");
+    }
+
+
+    exit(details.exit_code);
+}
+
+
+LCH_API void lch_todo_opt(const char *txt, lch_todo_details details) {
+
+    if(txt) printf("TODO: %s\n", txt);
+
+    if(details.file_where && details.function_where && details.line_where) {
+        printf("At: %s:%zu, in function %s()\n",
+            details.file_where, details.line_where, details.function_where);
+    }
+
+    fflush(stdout);
+
+    if(lch_unlikely(details.dont_exit)) return;
+
+    abort();
+}
+
+
+
+LCH_API lch_string_view lch_sv(char *c_str) {
+    return (lch_string_view) {
+        .data = c_str,
+        .count = strlen(c_str),
+    };
+}
+
+
+LCH_API void lch_sv_chop_left(lch_string_view *sv, size_t count){
+
+    if(count > sv->count) count = sv->count;
+    sv->count -= count;
+    sv->data += count;
+}
+
+
+LCH_API void lch_sv_chop_right(lch_string_view *sv, size_t count) {
+
+    if(count > sv->count) count = sv->count;
+    sv->count -= count;
+}
+
+LCH_API void lch_sv_trim_left(lch_string_view *sv){
+
+    while (sv->count > 0 && isspace(sv->data[0])) {
+        lch_sv_chop_left(sv, 1);
+    }
+
+}
+
+LCH_API void lch_sv_trim_right(lch_string_view *sv) {
+
+    while(sv->count > 0 && isspace(sv->data[sv->count-1])) {
+        lch_sv_chop_right(sv, 1);
+    }
+}
+
+LCH_API void lch_sv_trim(lch_string_view *sv) {
+    lch_sv_trim_left(sv);
+    lch_sv_trim_right(sv);
+}
+
+
+LCH_API lch_string_view lch_sv_chop_by_delim(lch_string_view *sv, char delim) {
+
+    size_t i = 0;
+    while(i <  sv->count && sv->data[i] != delim) {
+        i += 1;
+    }
+
+    if (i < sv->count) {
+        lch_string_view result = {
+            .data = sv->data,
+            .count = i,
+        };
+        lch_sv_chop_left(sv, i + 1);
+        return result;
+    }
+
+    lch_string_view result = *sv;
+    lch_sv_chop_left(sv, sv->count);
+    return result;
+}
+
+LCH_API bool lch_sv_contains(lch_string_view haystack, lch_string_view needle) {
+
+    if(needle.count == 0) return true;
+    if(needle.count > haystack.count) return false;
+
+    for(size_t i = 0; i <= haystack.count - needle.count; ++i) {
+        if(memcmp(haystack.items + i, needle.items, needle.count) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+LCH_API bool lch_sv_equals(lch_string_view a, lch_string_view b) {
+
+    if(a.count != b.count) return false; /* imediate disqualification for equality */
+
+    if (a.data == b.data) return true; /* if they point to the same cstring on memory */
+
+    if(memcmp(a.data, b.data, a.count) == 0) return true;
+
+    return false;
+}
+
+
+
+LCH_API const char *lch_bool_to_str_ex_opt(bool value, lch__bool_opts opt) {
+
+    if(opt.all_caps) return value ? "TRUE" : "FALSE";
+
+    if(opt.capitalized) return value ? "True" : "False";
+
+    return value ? "true" : "false";
+}
+
+#endif /* LCH_IMPLEMENTATION */
+
